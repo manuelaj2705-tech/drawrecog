@@ -1,195 +1,126 @@
 import os
-import base64
-import numpy as np
-from PIL import Image
-import openai
 import streamlit as st
+import base64
+from openai import OpenAI
+import openai
+import tensorflow as tf
+from PIL import Image, ImageOps
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 from streamlit_drawable_canvas import st_canvas
 
-st.set_page_config(page_title="Tablero Inteligente", page_icon="✏️", layout="wide")
+Expert=" "
+profile_imgenh=" "
 
+# 🎨 Fuente bonita
 st.markdown("""
-<style>
-    #MainMenu, footer, header { visibility: hidden; }
-    .block-container { padding: 1.5rem 2rem 3rem; }
-
-    /* Título */
-    .hero { padding: 1.2rem 0 1.8rem; border-bottom: 1px solid #ececec; margin-bottom: 1.5rem; }
-    .hero-tag {
-        display: inline-block;
-        background: #EEEDFE; color: #3C3489;
-        font-size: 11px; font-weight: 600;
-        letter-spacing: 0.06em; text-transform: uppercase;
-        padding: 3px 12px; border-radius: 99px;
-        margin-bottom: 10px;
-    }
-    .hero-title { font-size: 2.2rem; font-weight: 700; color: #111; line-height: 1.1; margin: 0 0 6px; }
-    .hero-sub { font-size: 1rem; color: #888; margin: 0; }
-
-    /* Sidebar */
-    section[data-testid="stSidebar"] { background: #f7f7f5 !important; }
-    section[data-testid="stSidebar"] .stMarkdown p { font-size: 0.85rem; }
-
-    /* Etiquetas de sección */
-    .sec-label {
-        font-size: 0.72rem; font-weight: 700;
-        text-transform: uppercase; letter-spacing: 0.08em;
-        color: #bbb; margin: 1.2rem 0 0.5rem;
-    }
-
-    /* Paleta de colores */
-    .palette { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 0.5rem; }
-    .swatch {
-        width: 30px; height: 30px; border-radius: 50%;
-        border: 2.5px solid transparent; cursor: pointer;
-        transition: transform 0.1s;
-    }
-    .swatch:hover { transform: scale(1.15); }
-
-    /* Resultado */
-    .resultado {
-        background: #f4f4f4; border-radius: 12px;
-        padding: 1.2rem 1.5rem; font-size: 0.97rem;
-        color: #333; line-height: 1.75; margin-top: 0.8rem;
-    }
-
-    /* Botón analizar */
-    div.stButton > button {
-        background: #111; color: #fff;
-        border: none; border-radius: 10px;
-        padding: 0.65rem 1.5rem; font-size: 0.95rem;
-        font-weight: 600; width: 100%;
-        transition: background 0.2s;
-    }
-    div.stButton > button:hover { background: #333; }
-
-    /* Input */
-    .stTextInput input {
-        border-radius: 8px; border: 1px solid #ddd;
-        font-size: 0.9rem; background: #fff;
-    }
-</style>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500&display=swap" rel="stylesheet">
 """, unsafe_allow_html=True)
 
-# ── Hero header ───────────────────────────────────────────────────────────────
+# 🎨 Título bonito centrado
 st.markdown("""
-<div class="hero">
-    <div class="hero-tag">✨ IA Visual</div>
-    <h1 class="hero-title">Tablero inteligente</h1>
-    <p class="hero-sub">Dibuja un boceto y la inteligencia artificial lo describirá en español.</p>
-</div>
+<h1 style='text-align: center; font-family: "Fredoka", sans-serif; color: #6C63FF;'>
+🧠✨ Tablero Inteligente
+</h1>
 """, unsafe_allow_html=True)
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+st.markdown("""
+<p style='text-align: center; font-size:18px;'>
+Dibuja lo que quieras y deja que la IA interprete tu creatividad 🎨
+</p>
+""", unsafe_allow_html=True)
+
+
+def encode_image_to_base64(image_path):
+    try:
+        with open(image_path, "rb") as image_file:
+            encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
+            return encoded_image
+    except FileNotFoundError:
+        return "Error: La imagen no se encontró en la ruta especificada."
+
+
+# Streamlit config
+st.set_page_config(page_title='Tablero Inteligente')
+
 with st.sidebar:
-    st.markdown("## ✏️ Herramientas")
-    st.markdown("---")
+    st.subheader("Acerca de:")
+    st.write("Esta aplicación permite que una IA interprete tus dibujos.")
 
-    st.markdown('<p class="sec-label">Color del lápiz</p>', unsafe_allow_html=True)
+    # 🎨 Personalización del marcador
+    stroke_width = st.slider('Grosor del marcador', 1, 30, 5)
+    stroke_color = st.color_picker("Color del marcador", "#000000")
 
-    colores = {
-        "Negro":    "#111111",
-        "Rojo":     "#E24B4A",
-        "Azul":     "#378ADD",
-        "Verde":    "#1D9E75",
-        "Naranja":  "#EF9F27",
-        "Morado":   "#7F77DD",
-        "Rosa":     "#D4537E",
-        "Coral":    "#D85A30",
-        "Gris":     "#888780",
-    }
+st.subheader("Dibuja tu boceto y presiona el botón para analizarlo")
 
-    opciones = list(colores.keys())
-    color_elegido = st.radio(
-        "Color",
-        opciones,
-        index=0,
-        label_visibility="collapsed",
-        format_func=lambda c: f"{'⬤'} {c}",
-    )
-    stroke_color = colores[color_elegido]
+# Canvas config
+drawing_mode = "freedraw"
+bg_color = '#FFFFFF'
 
-    st.markdown('<p class="sec-label">Color personalizado</p>', unsafe_allow_html=True)
-    custom_color = st.color_picker("Elige un color", value=stroke_color, label_visibility="collapsed")
-    if custom_color != stroke_color:
-        stroke_color = custom_color
-
-    st.markdown('<p class="sec-label">Grosor del trazo</p>', unsafe_allow_html=True)
-    stroke_width = st.slider("Grosor", 1, 30, 5, label_visibility="collapsed")
-
-    st.markdown("---")
-    st.markdown("**Cómo usar:**")
-    st.markdown(
-        "1. Elige el color del lápiz.\n"
-        "2. Ajusta el grosor.\n"
-        "3. Dibuja en el lienzo.\n"
-        "4. Ingresa tu API key.\n"
-        "5. Presiona **Analizar**."
-    )
-    st.markdown("---")
-    st.caption("Modelo: GPT-4o mini · OpenAI")
-
-# ── Canvas ────────────────────────────────────────────────────────────────────
 canvas_result = st_canvas(
-    fill_color="rgba(255, 165, 0, 0.0)",
+    fill_color="rgba(255, 165, 0, 0.3)",
     stroke_width=stroke_width,
-    stroke_color=stroke_color,
-    background_color="#FFFFFF",
-    height=360,
-    drawing_mode="freedraw",
+    stroke_color=stroke_color,  # 👈 ahora es dinámico
+    background_color=bg_color,
+    height=300,
+    width=400,
+    drawing_mode=drawing_mode,
     key="canvas",
 )
 
-# ── API key + botón ───────────────────────────────────────────────────────────
-col1, col2 = st.columns([3, 1])
-with col1:
-    ke = st.text_input("API key de OpenAI", type="password", placeholder="sk-...", label_visibility="visible")
-with col2:
-    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    analyze = st.button("Analizar imagen")
+# API KEY
+ke = st.text_input('Ingresa tu Clave')
+os.environ['OPENAI_API_KEY'] = ke
+api_key = os.environ['OPENAI_API_KEY']
 
-os.environ["OPENAI_API_KEY"] = ke
+client = OpenAI(api_key=api_key)
 
+analyze_button = st.button("Analiza la imagen", type="secondary")
 
-def encode_image(path: str) -> str:
-    try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
-    except FileNotFoundError:
-        return ""
+# Procesamiento
+if canvas_result.image_data is not None and api_key and analyze_button:
 
+    with st.spinner("Analizando ..."):
+        input_numpy_array = np.array(canvas_result.image_data)
+        input_image = Image.fromarray(input_numpy_array.astype('uint8'),'RGBA')
+        input_image.save('img.png')
+        
+        base64_image = encode_image_to_base64("img.png")
+        prompt_text = "Describe en español brevemente la imagen"
 
-# ── Análisis ──────────────────────────────────────────────────────────────────
-if analyze:
-    if not ke:
-        st.warning("⚠️ Ingresa tu API key para continuar.")
-    elif canvas_result.image_data is None:
-        st.warning("⚠️ Dibuja algo en el lienzo primero.")
-    else:
-        with st.spinner("Analizando tu boceto con IA..."):
-            arr = np.array(canvas_result.image_data)
-            img = Image.fromarray(arr.astype("uint8"), "RGBA")
-            img.save("img.png")
-            b64 = encode_image("img.png")
+        try:
+            full_response = ""
+            message_placeholder = st.empty()
 
-            try:
-                response = openai.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{
+            response = openai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "Describe en español brevemente lo que ves en esta imagen."},
-                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                            {"type": "text", "text": prompt_text},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{base64_image}",
+                                },
+                            },
                         ],
-                    }],
-                    max_tokens=500,
-                )
-                descripcion = response.choices[0].message.content or ""
-                st.markdown(
-                    f'<div class="resultado">🖼️ {descripcion}</div>',
-                    unsafe_allow_html=True,
-                )
-                st.session_state["mi_respuesta"] = descripcion
+                    }
+                ],
+                max_tokens=500,
+            )
 
-            except Exception as e:
-                st.error(f"Error al conectar con la API: {e}")
+            if response.choices[0].message.content is not None:
+                full_response += response.choices[0].message.content
+                message_placeholder.markdown(full_response + "▌")
+
+            message_placeholder.markdown(full_response)
+
+        except Exception as e:
+            st.error(f"Ocurrió un error: {e}")
+
+else:
+    if not api_key:
+        st.warning("Por favor ingresa tu API key.")
