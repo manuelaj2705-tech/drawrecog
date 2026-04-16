@@ -27,7 +27,7 @@ st.markdown("""
 
 st.markdown("""
 <p style='text-align: center; font-size:18px;'>
-Dibuja lo que quieras y deja que la IA interprete tu creatividad 🎨
+Dibuja lo que quieras y deja que interpretemos tu creatividad 🎨
 </p>
 """, unsafe_allow_html=True)
 
